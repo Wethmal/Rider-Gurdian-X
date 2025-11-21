@@ -1,0 +1,125 @@
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <MPU6050.h>
+#include <MFRC522.h>
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"
+
+// WiFi
+#define WIFI_SSID "Dialog 4G 049"
+#define WIFI_PASSWORD "8fb279CF"
+
+// Firebase setup
+#define API_KEY "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s"
+#define DATABASE_URL "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+// Firebase objects
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+// RFID setup
+#define SS_PIN D4
+#define RST_PIN D3
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+// MPU6050 setup
+MPU6050 accel(0x68);
+short int ax, ay, az;
+float roll, pitch, tilt;
+float xG, yG, zG;
+const float gForce = 16384.0;
+const float accidentTiltThreshold = 50.0;
+
+// Helmet flag
+bool helmetAlreadyDetected = false;
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(D2, D1); // MPU6050 I2C
+  SPI.begin();         // RFID SPI
+
+  // WiFi connect
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected to WiFi!");
+
+  // Firebase setup
+  config.api_key = API_KEY;
+  auth.user.email = "admin@gmail.com";
+  auth.user.password = "admin123";
+  config.database_url = DATABASE_URL;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  // Initialize RFID
+  rfid.PCD_Init();
+  Serial.println("RFID Ready...");
+
+  // Initialize MPU6050
+  accel.initialize();
+  if (accel.testConnection()) Serial.println("MPU6050 Connected!");
+  else Serial.println("⚠ MPU6050 Not Detected");
+
+  // 🔹 Reset helmet status at system power ON
+  helmetAlreadyDetected = false;
+  Firebase.RTDB.setBool(&fbdo, "/helmetDetected", false);
+  Serial.println("System Boot: Helmet = FALSE");
+}
+
+void loop() {
+
+  // ===== 1️⃣ RFID HELMET DETECTION =====
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+
+    if (!helmetAlreadyDetected) {  // Only first scan
+      Serial.println("Helmet Detected! ✔ Sending to Firebase...");
+      if (Firebase.RTDB.setBool(&fbdo, "/helmetDetected", true))
+        Serial.println("✅ Helmet status updated in Firebase");
+      else
+        Serial.println("❌ Firebase Error: " + fbdo.errorReason());
+
+      helmetAlreadyDetected = true; // Lock it
+    } 
+    else {
+      Serial.println("Helmet already verified. No update sent.");
+    }
+
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
+  }
+
+  // ===== 2️⃣ MPU6050 ACCIDENT DETECTION =====
+  accel.getAcceleration(&ax, &ay, &az);
+  xG = ax / gForce;
+  yG = ay / gForce;
+  zG = az / gForce;
+
+  roll  = atan2(yG, zG) * 180.0 / PI;
+  pitch = atan2(-xG, sqrt(yG*yG + zG*zG)) * 180.0 / PI;
+  tilt = max(abs(roll), abs(pitch));
+
+  bool accident = (tilt >= accidentTiltThreshold);
+
+  // Send accident status to Firebase
+  if (Firebase.RTDB.setBool(&fbdo, "/accident", accident)) {
+    Serial.println(accident ? "🚨 Accident Detected!" : "✔ Normal Riding");
+  } else {
+    Serial.println("❌ Firebase Error: " + fbdo.errorReason());
+  }
+
+  // Reset helmet flag if accident occurs
+  if (accident && helmetAlreadyDetected) {
+    helmetAlreadyDetected = false;
+    Firebase.RTDB.setBool(&fbdo, "/helmetDetected", false);
+    Serial.println("Accident: Helmet reset to FALSE");
+  }
+
+  delay(1000);
+}

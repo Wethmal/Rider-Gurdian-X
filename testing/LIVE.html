@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bike Safety Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  :root {
+    --primary: #1f4037;
+    --secondary: #99f2c8;
+    --danger: #ff4d4d;
+    --warning: #ffa500;
+    --safe: #4caf50;
+    --dark: #0a1f1a;
+    --card-bg: rgba(255, 255, 255, 0.1);
+    --text-light: #ffffff;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+
+  body {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: var(--text-light);
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  header {
+    text-align: center;
+    padding: 25px 0;
+    margin-bottom: 30px;
+    position: relative;
+  }
+
+  header h1 {
+    font-size: 2.8rem;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+    display: inline-block;
+    position: relative;
+  }
+
+  header h1::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 4px;
+    background: var(--secondary);
+    border-radius: 2px;
+  }
+
+  .container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 25px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: var(--card-bg);
+    border-radius: 20px;
+    padding: 25px;
+    box-shadow: var(--shadow);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5px;
+    background: var(--secondary);
+  }
+
+  .card:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 15px;
+    font-size: 1.8rem;
+    background: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  }
+
+  .card-title {
+    font-size: 1.4rem;
+    font-weight: 600;
+  }
+
+  .card-body {
+    text-align: center;
+  }
+
+  .value {
+    font-size: 2.8rem;
+    font-weight: 700;
+    margin: 15px 0;
+    transition: all 0.3s ease;
+  }
+
+  /* Status colors */
+  .helmet-true { color: var(--safe); }
+  .helmet-false { color: var(--danger); }
+  .accident-true { color: var(--danger); }
+  .accident-false { color: var(--safe); }
+  .proximity-danger { color: var(--danger); }
+  .proximity-very-close { color: var(--warning); }
+  .proximity-close { color: #ffd700; }
+  .proximity-safe { color: var(--safe); }
+
+  /* Progress bar */
+  .progress-container {
+    margin-top: 20px;
+  }
+
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+  }
+
+  .progress {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 15px;
+    overflow: hidden;
+    height: 20px;
+    position: relative;
+  }
+
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(to right, var(--safe), var(--warning), var(--danger));
+    text-align: center;
+    line-height: 20px;
+    color: #000;
+    font-weight: bold;
+    border-radius: 15px;
+    transition: width 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* Status indicators */
+  .status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+  }
+
+  .status-safe { background-color: var(--safe); }
+  .status-warning { background-color: var(--warning); }
+  .status-danger { background-color: var(--danger); }
+
+  /* Alert animations */
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+  }
+
+  .alert {
+    animation: pulse 1.5s infinite;
+  }
+
+  /* Weather condition icons */
+  .weather-icon {
+    font-size: 3rem;
+    margin: 15px 0;
+  }
+
+  /* Responsive design */
+  @media (max-width: 768px) {
+    .container {
+      grid-template-columns: 1fr;
+    }
+    
+    header h1 {
+      font-size: 2.2rem;
+    }
+    
+    .value {
+      font-size: 2.2rem;
+    }
+  }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    margin-top: 40px;
+    padding: 20px;
+    font-size: 0.9rem;
+    opacity: 0.8;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><i class="fas fa-motorcycle"></i> Bike Safety Dashboard</h1>
+</header>
+
+<div class="container">
+  <div class="card">
+    <div class="card-header">
+      <div class="icon">
+        <i class="fas fa-helmet-safety"></i>
+      </div>
+      <div class="card-title">Helmet Status</div>
+    </div>
+    <div class="card-body">
+      <div id="helmet" class="value helmet-false">Loading...</div>
+      <div class="progress-container">
+        <div class="progress-label">
+          <span>No Helmet</span>
+          <span>Helmet On</span>
+        </div>
+        <div class="progress">
+          <div id="helmetBar" class="progress-bar">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="icon">
+        <i class="fas fa-car-crash"></i>
+      </div>
+      <div class="card-title">Accident Detection</div>
+    </div>
+    <div class="card-body">
+      <div id="accident" class="value accident-false">Loading...</div>
+      <div class="progress-container">
+        <div class="progress-label">
+          <span>Safe</span>
+          <span>Accident</span>
+        </div>
+        <div class="progress">
+          <div id="accidentBar" class="progress-bar">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="icon">
+        <i class="fas fa-ruler-combined"></i>
+      </div>
+      <div class="card-title">Distance</div>
+    </div>
+    <div class="card-body">
+      <div id="distance" class="value">0 cm</div>
+      <div class="progress-container">
+        <div class="progress-label">
+          <span>Safe</span>
+          <span>Danger</span>
+        </div>
+        <div class="progress">
+          <div id="distanceBar" class="progress-bar">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="icon">
+        <i class="fas fa-exclamation-triangle"></i>
+      </div>
+      <div class="card-title">Proximity Alert</div>
+    </div>
+    <div class="card-body">
+      <div id="proximity" class="value proximity-safe">
+        <span class="status-indicator status-safe"></span>SAFE
+      </div>
+      <div class="progress-container">
+        <div class="progress-label">
+          <span>Safe</span>
+          <span>Danger</span>
+        </div>
+        <div class="progress">
+          <div id="proximityBar" class="progress-bar">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="icon">
+        <i class="fas fa-thermometer-half"></i>
+      </div>
+      <div class="card-title">Temperature</div>
+    </div>
+    <div class="card-body">
+      <div id="temperature" class="value">0 °C</div>
+      <div class="progress-container">
+        <div class="progress-label">
+          <span>0°C</span>
+          <span>50°C</span>
+        </div>
+        <div class="progress">
+          <div id="tempBar" class="progress-bar">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="icon">
+        <i class="fas fa-tint"></i>
+      </div>
+      <div class="card-title">Humidity</div>
+    </div>
+    <div class="card-body">
+      <div id="humidity" class="value">0 %</div>
+      <div class="progress-container">
+        <div class="progress-label">
+          <span>0%</span>
+          <span>100%</span>
+        </div>
+        <div class="progress">
+          <div id="humBar" class="progress-bar">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="icon">
+        <i class="fas fa-cloud"></i>
+      </div>
+      <div class="card-title">Weather Condition</div>
+    </div>
+    <div class="card-body">
+      <div class="weather-icon" id="weatherIcon">
+        <i class="fas fa-sun"></i>
+      </div>
+      <div id="condition" class="value">NORMAL</div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p>Bike Safety Dashboard &copy; 2023 | Real-time Monitoring System</p>
+</footer>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js";
+  import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s",
+    databaseURL: "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app/"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  function updateCard(id, value, trueClass, falseClass) {
+    const el = document.getElementById(id);
+    el.innerText = value;
+    if (value === true || value === "true") {
+      el.classList.add(trueClass);
+      el.classList.remove(falseClass);
+    } else if (value === false || value === "false") {
+      el.classList.add(falseClass);
+      el.classList.remove(trueClass);
+    }
+  }
+
+  // Update progress bar
+  function updateProgress(id, value, maxValue) {
+    const bar = document.getElementById(id);
+    let percent = Math.min((value / maxValue) * 100, 100);
+    bar.style.width = percent + "%";
+    bar.innerText = Math.round(percent) + "%";
+  }
+
+  // Update status indicator
+  function updateStatusIndicator(id, status) {
+    const el = document.getElementById(id);
+    const indicator = el.querySelector('.status-indicator');
+    
+    // Remove all status classes
+    indicator.classList.remove('status-safe', 'status-warning', 'status-danger');
+    
+    // Add appropriate class based on status
+    if (status === "DANGER") {
+      indicator.classList.add('status-danger');
+      el.classList.add('alert');
+    } else if (status === "VERY CLOSE") {
+      indicator.classList.add('status-warning');
+      el.classList.add('alert');
+    } else if (status === "CLOSE") {
+      indicator.classList.add('status-warning');
+      el.classList.remove('alert');
+    } else {
+      indicator.classList.add('status-safe');
+      el.classList.remove('alert');
+    }
+  }
+
+  // Update weather icon
+  function updateWeatherIcon(condition) {
+    const icon = document.getElementById('weatherIcon');
+    const conditionText = condition.toLowerCase();
+    
+    // Clear previous icon
+    icon.innerHTML = '';
+    
+    // Set appropriate icon based on condition
+    if (conditionText.includes('rain') || conditionText.includes('shower')) {
+      icon.innerHTML = '<i class="fas fa-cloud-rain"></i>';
+    } else if (conditionText.includes('cloud')) {
+      icon.innerHTML = '<i class="fas fa-cloud"></i>';
+    } else if (conditionText.includes('sun') || conditionText.includes('clear')) {
+      icon.innerHTML = '<i class="fas fa-sun"></i>';
+    } else if (conditionText.includes('storm')) {
+      icon.innerHTML = '<i class="fas fa-bolt"></i>';
+    } else if (conditionText.includes('snow')) {
+      icon.innerHTML = '<i class="fas fa-snowflake"></i>';
+    } else {
+      icon.innerHTML = '<i class="fas fa-cloud"></i>';
+    }
+  }
+
+  // Helmet
+  onValue(ref(db, '/helmetDetected'), (snapshot) => {
+    const value = snapshot.val();
+    updateCard("helmet", value, "helmet-true", "helmet-false");
+    updateProgress("helmetBar", value === true || value === "true" ? 100 : 0, 100);
+  });
+
+  // Accident
+  onValue(ref(db, '/accident'), (snapshot) => {
+    const value = snapshot.val();
+    updateCard("accident", value, "accident-true", "accident-false");
+    updateProgress("accidentBar", value === true || value === "true" ? 100 : 0, 100);
+    
+    // Add alert animation for accidents
+    const accidentEl = document.getElementById("accident");
+    if (value === true || value === "true") {
+      accidentEl.classList.add('alert');
+    } else {
+      accidentEl.classList.remove('alert');
+    }
+  });
+
+  // Distance
+  onValue(ref(db, '/ultrasonic/distance'), (snapshot) => {
+    let val = snapshot.val();
+    document.getElementById("distance").innerText = val + " cm";
+    updateProgress("distanceBar", 400 - val, 400); // Closer = higher alert
+  });
+
+  // Proximity
+  onValue(ref(db, '/ultrasonic/status'), (snapshot) => {
+    const el = document.getElementById("proximity");
+    let status = snapshot.val();
+    el.innerHTML = `<span class="status-indicator"></span>${status}`;
+    el.className = "value"; // reset
+    
+    // Update classes based on status
+    if (status === "DANGER") {
+      el.classList.add("proximity-danger");
+      updateProgress("proximityBar", 100, 100);
+    } else if (status === "VERY CLOSE") {
+      el.classList.add("proximity-very-close");
+      updateProgress("proximityBar", 75, 100);
+    } else if (status === "CLOSE") {
+      el.classList.add("proximity-close");
+      updateProgress("proximityBar", 50, 100);
+    } else {
+      el.classList.add("proximity-safe");
+      updateProgress("proximityBar", 0, 100);
+    }
+    
+    // Update status indicator
+    updateStatusIndicator("proximity", status);
+  });
+
+  // Temperature
+  onValue(ref(db, '/weather/temperature'), (snapshot) => {
+    let val = snapshot.val();
+    document.getElementById("temperature").innerText = val + " °C";
+    updateProgress("tempBar", val, 50); // Max 50°C
+  });
+
+  // Humidity
+  onValue(ref(db, '/weather/humidity'), (snapshot) => {
+    let val = snapshot.val();
+    document.getElementById("humidity").innerText = val + " %";
+    updateProgress("humBar", val, 100);
+  });
+
+  // Condition
+  onValue(ref(db, '/weather/condition'), (snapshot) => {
+    const condition = snapshot.val();
+    document.getElementById("condition").innerText = condition;
+    updateWeatherIcon(condition);
+  });
+</script>
+
+</body>
+</html>

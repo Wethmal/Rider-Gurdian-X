@@ -1,0 +1,106 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <LiquidCrystal_I2C.h>
+#include <ESP8266WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"  // for Firebase authentication
+#include "addons/RTDBHelper.h"   // for Realtime Database
+
+// WiFi credentials
+#define WIFI_SSID "Dialog 4G 049"
+#define WIFI_PASSWORD "8fb279CF"
+
+// Firebase project info
+#define API_KEY "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s"
+#define DATABASE_URL "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+// User credentials
+#define USER_EMAIL "admin@gmail.com"
+#define USER_PASSWORD "admin123"
+
+// Objects
+MPU6050 accel(0x68);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+// MPU6050 variables
+short int axisX, axisY, axisZ;
+float xG, yG, zG;
+const float gForce = 16384.0;
+float roll, pitch, tilt;
+const float accidentTiltThreshold = 50.0; // degrees
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(D2, D1); // SDA, SCL
+
+  // LCD setup
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("Bike Status:");
+
+  // WiFi connect
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected!");
+
+  // Firebase config
+  config.api_key = API_KEY;
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+  config.database_url = DATABASE_URL;
+
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  // MPU6050
+  accel.initialize();
+  if(!accel.testConnection()) Serial.println("⚠ MPU6050 not connected!");
+  else Serial.println("MPU6050 Connected!");
+}
+
+void loop() {
+  // Read MPU6050
+  accel.getAcceleration(&axisX, &axisY, &axisZ);
+  xG = axisX / gForce;
+  yG = axisY / gForce;
+  zG = axisZ / gForce;
+
+  // Calculate tilt
+  roll  = atan2(yG, zG) * 180.0 / PI;
+  pitch = atan2(-xG, sqrt(yG*yG + zG*zG)) * 180.0 / PI;
+  tilt = max(abs(roll), abs(pitch));
+
+  // Display
+  lcd.setCursor(0,1);
+  if(tilt >= accidentTiltThreshold) {
+    lcd.print("!! ACCIDENT !!");
+    Serial.println("🚨 ACCIDENT DETECTED");
+
+    // Save to Firebase
+    if(Firebase.RTDB.setBool(&fbdo, "/accident", true)){
+      Serial.println("✅ Accident sent to Firebase");
+    } else {
+      Serial.print("❌ Firebase error: ");
+      Serial.println(fbdo.errorReason());
+    }
+
+  } else {
+    lcd.print("Riding Normally");
+    if(Firebase.RTDB.setBool(&fbdo, "/accident", false)){
+      Serial.println("✅ Status normal sent to Firebase");
+    } else {
+      Serial.print("❌ Firebase error: ");
+      Serial.println(fbdo.errorReason());
+    }
+  }
+
+  delay(1000);
+}

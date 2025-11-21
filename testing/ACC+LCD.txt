@@ -1,0 +1,76 @@
+#include <Wire.h>
+#include <MPU6050.h>
+#include <LiquidCrystal_I2C.h>
+#include <math.h>
+
+// MPU6050
+MPU6050 accel(0x68);
+
+// I2C LCD (address 0x27, 16x2)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Raw accelerometer values
+short int axisX, axisY, axisZ;
+
+// G-force values
+float xG, yG, zG;
+const float gForce = 16384.0;
+
+// Angles
+float roll, pitch, tilt;
+
+// Tilt threshold for accident detection
+const float accidentTiltThreshold = 50.0; // degrees, tune as needed
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(D2, D1); // SDA, SCL for NodeMCU
+
+  Serial.println("Initializing MPU6050...");
+  accel.initialize();
+
+  if (!accel.testConnection()) {
+    Serial.println("⚠ MPU6050 connection failed, continuing anyway...");
+  } else {
+    Serial.println("MPU6050 Connected!");
+  }
+
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Bike Status:");
+}
+
+void loop() {
+  // Read raw acceleration
+  accel.getAcceleration(&axisX, &axisY, &axisZ);
+
+  // Convert to g-force
+  xG = axisX / gForce;
+  yG = axisY / gForce;
+  zG = axisZ / gForce;
+
+  // Calculate roll and pitch angles
+  roll  = atan2(yG, zG) * 180.0 / PI;
+  pitch = atan2(-xG, sqrt(yG*yG + zG*zG)) * 180.0 / PI;
+
+  // Use maximum tilt angle
+  tilt = max(abs(roll), abs(pitch));
+
+  // Serial debug
+  Serial.print("Roll: "); Serial.print(roll);
+  Serial.print(" | Pitch: "); Serial.print(pitch);
+  Serial.print(" | Tilt: "); Serial.println(tilt);
+
+  // Display on LCD
+  lcd.setCursor(0, 1); // second line
+  if (tilt >= accidentTiltThreshold) {
+    lcd.print("!! ACCIDENT !! ");
+    Serial.println("🚨 ACCIDENT/FALL DETECTED!");
+  } else {
+    lcd.print("Riding Normally");
+  }
+
+  delay(50); // fast check
+}
