@@ -1,0 +1,20 @@
+#include <SoftwareSerial.h>
+
+#define RX 14   // D5 = GPIO14 (HC-05 TX → NodeMCU RX)
+#define TX 12   // D6 = GPIO12 (HC-05 RX ← NodeMCU TX)
+
+SoftwareSerial BT(RX, TX);
+
+void setup() {
+  Serial.begin(115200);
+  BT.begin(9600);
+  Serial.println("Bluetooth Ready (D5 RX, D6 TX)");
+}
+
+void loop() {
+  if (BT.available()) {
+    char data = BT.read();
+    Serial.print("Received: ");
+    Serial.println(data);
+  }
+}
