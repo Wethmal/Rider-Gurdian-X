@@ -1,0 +1,62 @@
+ #include <Wire.h>
+#include <MPU6050.h>
+#include <math.h>
+#include <SoftwareSerial.h>
+
+MPU6050 accel(0x68);
+
+// Bluetooth Pins
+#define RX 14   // D5
+#define TX 12   // D6
+SoftwareSerial BT(RX, TX);
+
+// Raw accelerometer values
+short int axisX, axisY, axisZ;
+
+float xG, yG, zG;
+const float gForce = 16384.0;
+
+float roll, pitch, tilt;
+
+const float accidentTiltThreshold = 50.0; 
+
+void setup() {
+  Serial.begin(115200);
+  BT.begin(9600);
+
+  Wire.begin(D2, D1); // SDA, SCL
+
+  Serial.println("Initializing MPU6050...");
+  accel.initialize();
+
+  if (accel.testConnection())
+    Serial.println("MPU6050 Connected!");
+  else
+    Serial.println("⚠ MPU6050 connection failed!");
+}
+
+void loop() {
+  accel.getAcceleration(&axisX, &axisY, &axisZ);
+
+  xG = axisX / gForce;
+  yG = axisY / gForce;
+  zG = axisZ / gForce;
+
+  roll  = atan2(yG, zG) * 180.0 / PI;
+  pitch = atan2(-xG, sqrt(yG*yG + zG*zG)) * 180.0 / PI;
+
+  tilt = max(abs(roll), abs(pitch));
+
+  Serial.print("Tilt: ");
+  Serial.println(tilt);
+
+  if (tilt >= accidentTiltThreshold) {
+    Serial.println("🚨 ACCIDENT DETECTED!");
+    BT.println("A");   // 🔴 Send A to Android app
+  } else {
+    Serial.println("Normal");
+    BT.println("N");   // 🟢 Normal status
+  }
+
+  delay(2000);
+}
