@@ -3,19 +3,16 @@
 #include <WiFi.h>
 #include <FS.h>
 
-// ==========================
-// WiFi Credentials
-// ==========================
+
 const char* ssid = "Dialog 4G 049";
 const char* password = "8fb279CF";
 
 WiFiServer server(80);
 
-#define FLASH_PIN 4   // Flash LED pin
-
+#define FLASH_PIN 4   
 // Recording Settings
-const unsigned long recordingTime = 60000;    // 1 minute
-const unsigned long snapshotInterval = 1000;  // 1 image per second
+const unsigned long recordingTime = 60000;    
+const unsigned long snapshotInterval = 1000;  
 unsigned long lastSnap = 0;
 unsigned long recordStart = 0;
 String folderName = "";
@@ -38,9 +35,7 @@ String folderName = "";
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// ==========================
-// Camera Setup
-// ==========================
+
 void setupCamera() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -73,9 +68,7 @@ void setupCamera() {
   }
 }
 
-// ==========================
-// Delete Oldest Folder
-// ==========================
+
 void deleteOldestFolder() {
   File root = SD_MMC.open("/");
   File oldest;
@@ -99,9 +92,7 @@ void deleteOldestFolder() {
   }
 }
 
-// ==========================
-// Start New Recording
-// ==========================
+
 void startNewRecording() {
   folderName = "/REC_" + String(millis());
   SD_MMC.mkdir(folderName);
@@ -110,9 +101,7 @@ void startNewRecording() {
   lastSnap = 0;
 }
 
-// ==========================
-// Capture Snapshot
-// ==========================
+
 void captureSnapshot(bool flashOn) {
   if(flashOn) digitalWrite(FLASH_PIN, HIGH);  // Turn flash ON for snapshot
   delay(50); // small delay for flash
@@ -137,9 +126,7 @@ void captureSnapshot(bool flashOn) {
   if(flashOn) digitalWrite(FLASH_PIN, LOW); // Turn flash OFF after snapshot
 }
 
-// ==========================
-// Setup
-// ==========================
+
 void setup() {
   Serial.begin(115200);
 
@@ -167,9 +154,7 @@ void setup() {
   server.begin();
 }
 
-// ==========================
-// Main Loop
-// ==========================
+
 void loop() {
   unsigned long now = millis();
 
@@ -203,9 +188,7 @@ void loop() {
       }
     } else {
       client.stop();
-      digitalWrite(FLASH_PIN, LOW); // Turn off flash when client leaves
-    }
+      digitalWrite(FLASH_PIN, LOW);     }
   } else {
-    // No client, flash handled by snapshot logic (blinking every 1s)
-  }
+      }
 }
