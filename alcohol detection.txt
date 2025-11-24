@@ -1,0 +1,19 @@
+// MQ-3 Gas Sensor with NodeMCU
+int mq3Pin = A0;  
+int gasValue;
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+  gasValue = analogRead(mq3Pin);
+  Serial.print("Gas Level: ");
+  Serial.println(gasValue);
+
+  if (gasValue > 400) {
+    Serial.println("⚠ Alcohol Detected!");
+  }
+  
+  delay(500);
+}
