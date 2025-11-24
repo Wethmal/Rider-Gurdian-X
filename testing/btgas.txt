@@ -1,0 +1,29 @@
+#include <SoftwareSerial.h>
+#define GAS_SENSOR A0        
+SoftwareSerial BT(D3, D8);   
+
+
+void setup() {
+  Serial.begin(115200);
+  BT.begin(9600);
+
+  Serial.println("Gas Sensor + Bluetooth System Ready");
+}
+
+
+void loop() {
+  int gasValue = analogRead(GAS_SENSOR);
+
+    Serial.print("Gas Level: ");
+  Serial.println(gasValue);
+
+    BT.print("Gas Level: ");
+  BT.println(gasValue);
+
+   if (gasValue > 600) {        
+    Serial.println("⚠ HIGH GAS DETECTED!");
+    BT.println("⚠ HIGH GAS DETECTED!");
+  }
+
+  delay(500);
+}
