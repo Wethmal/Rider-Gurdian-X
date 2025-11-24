@@ -1,0 +1,47 @@
+#include <SoftwareSerial.h>
+
+// ----------------------- PIN CONFIG -----------------------
+#define HELMET_SWITCH_PIN D5      // Stable pin for helmet switch
+
+// Bluetooth Module Pins
+// D3 = RX , D8 = TX
+SoftwareSerial BT(D3, D8);
+
+// ----------------------- SETUP ----------------------------
+void setup() {
+  Serial.begin(115200);
+
+  // Helmet switch with pull-up
+  pinMode(HELMET_SWITCH_PIN, INPUT_PULLUP);
+
+  // Bluetooth module
+  BT.begin(9600);
+
+  Serial.println("System Ready | Helmet + Bluetooth Active");
+}
+
+// ----------------------- LOOP -----------------------------
+void loop() {
+
+  // -------- HELMET SWITCH SECTION --------
+  bool sw = digitalRead(HELMET_SWITCH_PIN);
+  bool helmet = !sw;  // Active LOW
+
+  if (helmet) {
+    Serial.println("Helmet ON");
+    BT.println("Helmet ON");       // Also send via Bluetooth
+  }
+  else {
+    Serial.println("Helmet OFF");
+    BT.println("Helmet OFF");      // Also send via Bluetooth
+  }
+
+  // -------- BLUETOOTH ECHO (BIDIRECTIONAL TEST) --------
+  if (Serial.available())
+    BT.write(Serial.read());
+
+  if (BT.available())
+    Serial.write(BT.read());
+
+  delay(300);
+}
