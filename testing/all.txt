@@ -9,8 +9,8 @@
 #include "addons/RTDBHelper.h"
 
 
-#define WIFI_SSID "KP"
-#define WIFI_PASSWORD "12345678"
+#define WIFI_SSID "Dialog 4G 049"
+#define WIFI_PASSWORD "8fb279CF"
 
 
 #define API_KEY "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s"
