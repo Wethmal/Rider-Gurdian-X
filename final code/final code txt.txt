@@ -1,0 +1,62 @@
+//  ULTRASONIC + DHT11 + GPS LOCATION 
+
+//ULTRASONIC
+void processUltrasonicSensor() {
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(5);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+    float distance = duration * 0.0343 / 2.0;
+
+    if (distance <= 0 || distance > 400) distance = 400;
+
+    String status = getProximityStatus(distance);
+
+    Firebase.RTDB.setFloat(&fbdo, "/ultrasonic/distance", distance);
+    Firebase.RTDB.setString(&fbdo, "/ultrasonic/status", status);
+
+    Serial.print("Distance: ");
+    Serial.print(distance);
+    Serial.println(" cm");
+
+    if (status == "DANGER") playAudioPriority(AUDIO_DANGER);
+}
+
+//DHT11
+void readDHTSensorData() {
+    float temp = dht.readTemperature();
+    float hum  = dht.readHumidity();
+
+    if (isnan(temp) || isnan(hum)) return;
+
+    Serial.print("Temp: ");
+    Serial.println(temp);
+    Serial.print("Humidity: ");
+    Serial.println(hum);
+
+    Firebase.RTDB.setFloat(&fbdo, "/weather/temperature", temp);
+    Firebase.RTDB.setFloat(&fbdo, "/weather/humidity", hum);
+}
+
+//GPS
+void updateGPSData() {
+    while (gpsSerial.available() > 0) {
+        if (gps.encode(gpsSerial.read())) {
+            if (gps.location.isValid()) {
+                float lat = gps.location.lat();
+                float lng = gps.location.lng();
+
+                Firebase.RTDB.setFloat(&fbdo, "/gps/latitude", lat);
+                Firebase.RTDB.setFloat(&fbdo, "/gps/longitude", lng);
+
+                Serial.print("GPS Lat: ");
+                Serial.println(lat);
+                Serial.print("GPS Lng: ");
+                Serial.println(lng);
+            }
+        }
+    }
+}
