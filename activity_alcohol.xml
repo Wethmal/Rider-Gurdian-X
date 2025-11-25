@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/alcoholRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101014"
+    tools:context=".AlcoholActivity">
+
+    <!-- Top title bar -->
+    <TextView
+        android:id="@+id/tvAlcoholPageTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Alcohol Sensor"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:padding="20dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- Alcohol card -->
+    <LinearLayout
+        android:id="@+id/layoutAlcoholCard"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:background="@drawable/bg_card_accent"
+        android:gravity="center_vertical"
+        app:layout_constraintTop_toBottomOf="@id/tvAlcoholPageTitle"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Status: SAFE / NOT SAFE -->
+        <TextView
+            android:id="@+id/tvAlcoholDetected"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Detected: --"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#FFE082" />
+
+        <!-- Raw gas/ppm level -->
+        <TextView
+            android:id="@+id/tvAlcoholLevel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Level: --"
+            android:textSize="16sp"
+            android:textColor="#FFECB3" />
+
+        <!-- Advisory -->
+        <TextView
+            android:id="@+id/tvAlcoholAdvice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Status: Waiting for sensor data..."
+            android:textSize="13sp"
+            android:textColor="#B0BEC5" />
+
+        <TextView
+            android:id="@+id/tvAlcoholHintDetail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Data from MQ-3 alcohol sensor via RiderGurdianX."
+            android:textSize="11sp"
+            android:textColor="#78909C" />
+
+    </LinearLayout>
+
+    <!-- Back hint -->
+    <TextView
+        android:id="@+id/tvAlcoholBackHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Press back to return to dashboard"
+        android:textSize="11sp"
+        android:textColor="#B0BEC5"
+        android:padding="16dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
