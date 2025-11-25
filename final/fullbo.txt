@@ -1,0 +1,689 @@
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <MPU6050.h>
+#include <DHT.h>
+#include <SoftwareSerial.h>
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"
+#include <LiquidCrystal_I2C.h>
+#include <DFRobotDFPlayerMini.h>
+#include <TinyGPS++.h>
+
+#define WIFI_SSID     "Dialog 4G 049"
+#define WIFI_PASSWORD "8fb279CF"
+
+#define API_KEY      "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s"
+#define DATABASE_URL "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+DFRobotDFPlayerMini myDFPlayer;
+
+SoftwareSerial gsmSerial(D9, D10);
+
+#define EMERGENCY_NUMBER "0769930678"
+
+bool emergencyCallMade = false;
+bool emergencySmsSent = false;
+
+SoftwareSerial gpsSerial(D11, D12);
+TinyGPSPlus gps;
+
+float currentLatitude = 0.0;
+float currentLongitude = 0.0;
+bool gpsLocationValid = false;
+unsigned long lastGPSUpdate = 0;
+const unsigned long gpsUpdateInterval = 5000;
+
+#define AUDIO_WELCOME          1
+#define AUDIO_HELMET_ON        2
+#define AUDIO_HELMET_OFF       3
+#define AUDIO_ALCOHOL          7
+#define AUDIO_ALCOHOL_CLEAR    5
+#define AUDIO_ACCIDENT         6
+#define AUDIO_DANGER           4
+#define AUDIO_VERY_CLOSE       8
+#define AUDIO_HIGH_TEMP        9
+#define AUDIO_SYSTEM_READY    10
+
+#define HELMET_SWITCH_PIN D5
+#define TRIG_PIN D6
+#define ECHO_PIN D7
+#define DHT_PIN  D4
+#define DHT_TYPE DHT11
+DHT dht(DHT_PIN, DHT_TYPE);
+
+#define MQ3_PIN A0
+int gasValue;
+int alcoholThreshold = 800;
+
+MPU6050 mpu;
+
+SoftwareSerial BT(D3, D8);
+
+unsigned long lastSensorTime = 0;
+const unsigned long sensorInterval = 2000;
+
+unsigned long lcdUpdateTime = 0;
+const unsigned long lcdAlertDuration = 3000;
+enum LcdMode { LCD_NORMAL, LCD_ALCOHOL_WARNING, LCD_DANGER_WARNING };
+LcdMode currentLcdMode = LCD_NORMAL;
+
+unsigned long lastAudioPlayTime = 0;
+const unsigned long audioMinInterval = 2000;
+int pendingAudioTrack = 0;
+bool audioPlaying = false;
+
+bool helmetDetected = false;
+bool lastHelmetState = false;
+
+float gForce = 16384.0;
+float roll, pitch, tilt;
+const float accidentTiltThreshold = 70.0;
+const float impactThreshold = 3.0;
+bool lastAccidentState = false;
+
+unsigned long accidentDebounceTime = 0;
+const unsigned long accidentDebounceDelay = 3000;
+bool accidentConfirmed = false;
+
+float lastDistance = 0;
+String lastProxStatus = "SAFE";
+float lastTemp = 0;
+float lastHum = 0;
+bool lastAlcoholDetected = false;
+bool alcoholWarningPlayed = false;
+
+unsigned long lastDangerWarning = 0;
+const unsigned long dangerWarningInterval = 5000;
+
+unsigned long lastTempWarning = 0;
+bool highTempWarningPlayed = false;
+
+void updateGPSLocation() {
+  while (gpsSerial.available() > 0) {
+    if (gps.encode(gpsSerial.read())) {
+      if (gps.location.isValid()) {
+        currentLatitude = gps.location.lat();
+        currentLongitude = gps.location.lng();
+        gpsLocationValid = true;
+        Firebase.RTDB.setFloat(&fbdo, "/gps/latitude", currentLatitude);
+        Firebase.RTDB.setFloat(&fbdo, "/gps/longitude", currentLongitude);
+        Serial.print("📍 GPS: Lat=");
+        Serial.print(currentLatitude, 6);
+        Serial.print(" Lng=");
+        Serial.println(currentLongitude, 6);
+      }
+    }
+  }
+}
+
+String getGoogleMapsLink() {
+  if (!gpsLocationValid) return "Location unavailable";
+  String mapsLink = "https://maps.google.com/?q=";
+  mapsLink += String(currentLatitude, 6);
+  mapsLink += ",";
+  mapsLink += String(currentLongitude, 6);
+  return mapsLink;
+}
+
+bool initGSM() {
+  Serial.println("Initializing GSM Module...");
+  gsmSerial.begin(9600);
+  delay(1000);
+  gsmSerial.println("AT");
+  delay(500);
+  if (gsmSerial.find("OK")) {
+    Serial.println("✓ GSM Module Responding");
+  } else {
+    Serial.println("✗ GSM Module Not Responding");
+    return false;
+  }
+  gsmSerial.println("AT+CMGF=1");
+  delay(500);
+  gsmSerial.println("AT+CREG?");
+  delay(500);
+  gsmSerial.println("AT+CLIP=1");
+  delay(500);
+  Serial.println("✓ GSM Module Initialized");
+  return true;
+}
+
+void makeEmergencyCall() {
+  if (emergencyCallMade) return;
+  Serial.println("📞 Making Emergency Call...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Calling Emergency");
+  lcd.setCursor(0, 1);
+  lcd.print(EMERGENCY_NUMBER);
+  gsmSerial.print("ATD");
+  gsmSerial.print(EMERGENCY_NUMBER);
+  gsmSerial.println(";");
+  delay(20000);
+  gsmSerial.println("ATH");
+  delay(1000);
+  emergencyCallMade = true;
+  Serial.println("✓ Emergency Call Completed");
+  Firebase.RTDB.setString(&fbdo, "/emergency/callStatus", "Call made to " + String(EMERGENCY_NUMBER));
+  Firebase.RTDB.setInt(&fbdo, "/emergency/timestamp", millis());
+}
+
+void sendEmergencySMS() {
+  if (emergencySmsSent) return;
+  Serial.println("📱 Sending Emergency SMS...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Sending SMS...");
+  gsmSerial.println("AT+CMGF=1");
+  delay(500);
+  gsmSerial.print("AT+CMGS=\"");
+  gsmSerial.print(EMERGENCY_NUMBER);
+  gsmSerial.println("\"");
+  delay(500);
+  String smsMessage = "EMERGENCY ALERT! Accident detected!\n";
+  smsMessage += "Rider needs immediate assistance.\n\n";
+  if (gpsLocationValid) {
+    smsMessage += "Location:\n";
+    smsMessage += "Lat: " + String(currentLatitude, 6) + "\n";
+    smsMessage += "Lng: " + String(currentLongitude, 6) + "\n\n";
+    smsMessage += "Google Maps:\n" + getGoogleMapsLink();
+  } else {
+    smsMessage += "GPS location unavailable.";
+  }
+  gsmSerial.print(smsMessage);
+  delay(500);
+  gsmSerial.write(26);
+  delay(5000);
+  emergencySmsSent = true;
+  Serial.println("✓ Emergency SMS Sent");
+  lcd.setCursor(0, 1);
+  lcd.print("SMS Sent!");
+  delay(2000);
+  Firebase.RTDB.setString(&fbdo, "/emergency/smsStatus", "SMS sent with location");
+  Firebase.RTDB.setString(&fbdo, "/emergency/location", getGoogleMapsLink());
+}
+
+void handleEmergencyResponse() {
+  Serial.println("🚨 INITIATING EMERGENCY RESPONSE 🚨");
+  makeEmergencyCall();
+  delay(2000);
+  sendEmergencySMS();
+  Firebase.RTDB.setBool(&fbdo, "/emergency/active", true);
+  Firebase.RTDB.setString(&fbdo, "/emergency/contactNumber", EMERGENCY_NUMBER);
+}
+
+void playAudio(int trackNumber) {
+  if (millis() - lastAudioPlayTime < audioMinInterval) {
+    pendingAudioTrack = trackNumber;
+    return;
+  }
+  if (myDFPlayer.available()) {
+    myDFPlayer.play(trackNumber);
+    lastAudioPlayTime = millis();
+    audioPlaying = true;
+    delay(100);
+  }
+}
+
+void playAudioPriority(int trackNumber) {
+  myDFPlayer.play(trackNumber);
+  lastAudioPlayTime = millis();
+  audioPlaying = true;
+  delay(100);
+}
+
+void processAudioQueue() {
+  if (pendingAudioTrack > 0 && (millis() - lastAudioPlayTime >= audioMinInterval)) {
+    int track = pendingAudioTrack;
+    pendingAudioTrack = 0;
+    playAudio(track);
+  }
+}
+
+float measureDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(5);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  float distance = duration * 0.0343 / 2.0;
+  if (distance <= 0 || distance > 400) return 400;
+  return distance;
+}
+
+String getProximityStatus(float d) {
+  if (d < 20)  return "DANGER";
+  if (d < 50)  return "VERY CLOSE";
+  if (d < 100) return "CLOSE";
+  if (d < 200) return "MODERATE";
+  return "SAFE";
+}
+
+String getWeatherCondition(float temp, float hum) {
+  if (temp > 35) return "HOT";
+  if (temp > 25 && hum > 70) return "HUMID";
+  if (temp < 15) return "COLD";
+  if (hum > 80)  return "RAINY/WET";
+  if (temp >= 20 && temp <= 30 && hum < 70) return "COMFORT";
+  return "NORMAL";
+}
+
+void lcdShowBoot(const char* line2) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  SMART HELMET  ");
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
+}
+
+void lcdShowHelmet(bool helmet) {
+  lcd.clear();
+  if (helmet) {
+    lcd.setCursor(0, 0);
+    lcd.print("   HELMET ON    ");
+    lcd.setCursor(0, 1);
+    lcd.print("  Ready to Ride ");
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print("  HELMET OFF!   ");
+    lcd.setCursor(0, 1);
+    lcd.print(" Wear to Start  ");
+  }
+}
+
+void lcdShowAccident() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("!! ACCIDENT !! ");
+  lcd.setCursor(0, 1);
+  lcd.print("Emergency Alert!");
+}
+
+void lcdShowAlcoholWarning() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("ALCOHOL DETECTED");
+  lcd.setCursor(0, 1);
+  lcd.print("  DO NOT RIDE!  ");
+}
+
+void lcdShowDangerWarning(float dist) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  !! DANGER !!  ");
+  lcd.setCursor(0, 1);
+  lcd.print("   Object ");
+  lcd.print((int)dist);
+  lcd.print("cm  ");
+}
+
+void lcdShowSummary(float dist, String status, float temp, int gas, bool alcohol, float hum) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+
+  if (alcohol) {
+    lcd.print("ALCOHOL! G:");
+    lcd.print(gas);
+  } else if (status == "DANGER") {
+    lcd.print("DANGER! ");
+    lcd.print((int)dist);
+    lcd.print("cm");
+  } else if (status == "VERY CLOSE") {
+    lcd.print("TOO CLOSE ");
+    lcd.print((int)dist);
+    lcd.print("cm");
+  } else {
+    lcd.print("Dist:");
+    lcd.print((int)dist);
+    lcd.print("cm ");
+    if (status == "CLOSE") lcd.print("OK");
+    else if (status == "MODERATE") lcd.print("OK");
+    else lcd.print("SAFE");
+  }
+
+  lcd.setCursor(0, 1);
+  lcd.print((int)temp);
+  lcd.print((char)223);
+  lcd.print("C ");
+  lcd.print((int)hum);
+  lcd.print("% ");
+
+  if (temp > 35) {
+    lcd.print("HOT!");
+  } else if (hum > 80) {
+    lcd.print("WET");
+  } else if (temp < 15) {
+    lcd.print("COLD");
+  } else {
+    lcd.print("OK");
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  BT.begin(9600);
+
+  lcd.init();
+  lcd.backlight();
+  lcdShowBoot("   Booting...   ");
+  delay(1500);
+
+  lcdShowBoot("  Init GPS...   ");
+  gpsSerial.begin(9600);
+  Serial.println("GPS Module Started");
+  delay(1000);
+
+  lcdShowBoot("  Init GSM...   ");
+  if (initGSM()) {
+    Serial.println("✓ GSM Ready");
+    lcdShowBoot("  GSM Ready!    ");
+  } else {
+    Serial.println("✗ GSM Failed");
+    lcdShowBoot("  GSM Failed!   ");
+  }
+  delay(1500);
+
+  lcdShowBoot("  Init Audio... ");
+  Serial.println("Initializing DFPlayer Mini...");
+  delay(1000);
+
+  if (!myDFPlayer.begin(Serial)) {
+    Serial.println("✗ DFPlayer connection failed!");
+    lcdShowBoot(" Audio Failed! ");
+    delay(3000);
+  } else {
+    Serial.println("✓ DFPlayer Online");
+    myDFPlayer.volume(25);
+    delay(50);
+    myDFPlayer.EQ(DFPLAYER_EQ_NORMAL);
+    delay(50);
+    myDFPlayer.outputDevice(DFPLAYER_DEVICE_SD);
+    delay(50);
+    int fileCount = myDFPlayer.readFileCounts();
+    Serial.print("Files on SD: ");
+    Serial.println(fileCount);
+    delay(1000);
+    playAudioPriority(AUDIO_WELCOME);
+    lcdShowBoot(" Welcome Rider! ");
+    delay(4000);
+  }
+
+  pinMode(HELMET_SWITCH_PIN, INPUT_PULLUP);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  dht.begin();
+
+  Wire.begin(D2, D1);
+  mpu.initialize();
+  if (mpu.testConnection()) {
+    Serial.println("✓ MPU6050 Connected");
+  } else {
+    Serial.println("✗ MPU6050 Failed!");
+  }
+
+  lcdShowBoot("WiFi Connect...");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
+  int wifiAttempts = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiAttempts < 20) {
+    delay(500);
+    Serial.print(".");
+    wifiAttempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✓ WiFi Connected");
+    lcdShowBoot(" WiFi Connected ");
+  } else {
+    Serial.println("\n✗ WiFi Failed");
+    lcdShowBoot("  WiFi Failed!  ");
+  }
+  delay(1000);
+
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+  auth.user.email = "admin@gmail.com";
+  auth.user.password = "admin123";
+
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  Serial.println("✓ Firebase Ready");
+  lcdShowBoot("Firebase Ready");
+  delay(1000);
+
+  Firebase.RTDB.setBool(&fbdo, "/helmetDetected", false);
+  Firebase.RTDB.setBool(&fbdo, "/accident", false);
+  Firebase.RTDB.setBool(&fbdo, "/emergency/active", false);
+
+  lcdShowBoot(" System Ready! ");
+  delay(500);
+  playAudioPriority(AUDIO_SYSTEM_READY);
+  delay(3000);
+
+  lcdShowHelmet(false);
+}
+
+void loop() {
+  processAudioQueue();
+
+  if (millis() - lastGPSUpdate >= gpsUpdateInterval) {
+    lastGPSUpdate = millis();
+    updateGPSLocation();
+  }
+
+  bool rawState = digitalRead(HELMET_SWITCH_PIN);
+  bool currentHelmet = !rawState;
+
+  if (currentHelmet != lastHelmetState) {
+    lastHelmetState = currentHelmet;
+    helmetDetected  = currentHelmet;
+
+    if (helmetDetected) {
+      Serial.println("✓ Helmet ON");
+      BT.println("HELMET ON");
+      playAudio(AUDIO_HELMET_ON);
+    } else {
+      Serial.println("✗ Helmet OFF");
+      BT.println("HELMET OFF");
+      playAudio(AUDIO_HELMET_OFF);
+    }
+
+    Firebase.RTDB.setBool(&fbdo, "/helmetDetected", helmetDetected);
+    
+    if (!lastAccidentState) {
+      lcdShowHelmet(helmetDetected);
+      currentLcdMode = LCD_NORMAL;
+    }
+  }
+
+  int16_t ax, ay, az;
+  mpu.getAcceleration(&ax, &ay, &az);
+
+  float xG = ax / gForce;
+  float yG = ay / gForce;
+  float zG = az / gForce;
+
+  float totalG = sqrt(xG * xG + yG * yG + zG * zG);
+  
+  roll = atan2(yG, zG) * 180.0 / PI;
+  pitch = atan2(-xG, sqrt(yG * yG + zG * zG)) * 180.0 / PI;
+  tilt = max(abs(roll), abs(pitch));
+
+  bool impactDetected = (totalG > impactThreshold);
+  bool extremeTilt = (tilt >= accidentTiltThreshold);
+  bool accidentTrigger = (impactDetected || extremeTilt);
+
+  if (accidentTrigger && !accidentConfirmed) {
+    if (accidentDebounceTime == 0) {
+      accidentDebounceTime = millis();
+      Serial.println("⚠ Possible accident - verifying...");
+    } else if (millis() - accidentDebounceTime >= accidentDebounceDelay) {
+      accidentConfirmed = true;
+      Serial.println("⚠⚠⚠ ACCIDENT CONFIRMED!");
+    }
+  } else if (!accidentTrigger) {
+    accidentDebounceTime = 0;
+    if (accidentConfirmed) {
+      accidentConfirmed = false;
+      Serial.println("✓ Accident cleared");
+      emergencyCallMade = false;
+      emergencySmsSent = false;
+      Firebase.RTDB.setBool(&fbdo, "/emergency/active", false);
+    }
+  }
+
+  Firebase.RTDB.setFloat(&fbdo, "/mpu/tilt", tilt);
+  Firebase.RTDB.setFloat(&fbdo, "/mpu/impact", totalG);
+  Firebase.RTDB.setBool(&fbdo, "/accident", accidentConfirmed);
+
+  if (accidentConfirmed && !lastAccidentState) {
+    Serial.println("🚨 ACCIDENT DETECTED!");
+    BT.println("A");
+    playAudioPriority(AUDIO_ACCIDENT);
+    lcdShowAccident();
+    Firebase.RTDB.setBool(&fbdo, "/helmetDetected", false);
+    delay(2000);
+    updateGPSLocation();
+    handleEmergencyResponse();
+  } else if (!accidentConfirmed && lastAccidentState) {
+    BT.println("N");
+    lcdShowHelmet(helmetDetected);
+  }
+
+  lastAccidentState = accidentConfirmed;
+
+  if (!accidentConfirmed) BT.println("N");
+
+  if (millis() - lastSensorTime >= sensorInterval) {
+    lastSensorTime = millis();
+
+    float dist = measureDistance();
+    String prox = getProximityStatus(dist);
+
+    Firebase.RTDB.setFloat(&fbdo, "/ultrasonic/distance", dist);
+    Firebase.RTDB.setString(&fbdo, "/ultrasonic/status", prox);
+
+    Serial.print("📏 Distance: ");
+    Serial.print(dist);
+    Serial.print(" cm - Status: ");
+    Serial.println(prox);
+
+    if (prox == "DANGER" && (millis() - lastDangerWarning > dangerWarningInterval)) {
+      playAudioPriority(AUDIO_DANGER);
+      lcdShowDangerWarning(dist);
+      currentLcdMode = LCD_DANGER_WARNING;
+      lcdUpdateTime = millis();
+      lastDangerWarning = millis();
+    } else if (prox == "VERY CLOSE" && lastProxStatus != "VERY CLOSE" && lastProxStatus != "DANGER") {
+      playAudio(AUDIO_VERY_CLOSE);
+      lcdShowDangerWarning(dist);
+      currentLcdMode = LCD_DANGER_WARNING;
+      lcdUpdateTime = millis();
+    }
+
+    BT.print("DIST:");
+    BT.print(dist);
+    BT.print(" ");
+    BT.println(prox);
+
+    lastDistance = dist;
+    lastProxStatus = prox;
+
+    float temp = dht.readTemperature();
+    float hum  = dht.readHumidity();
+
+    if (!isnan(temp) && !isnan(hum)) {
+      String cond = getWeatherCondition(temp, hum);
+
+      Firebase.RTDB.setFloat(&fbdo, "/weather/temperature", temp);
+      Firebase.RTDB.setFloat(&fbdo, "/weather/humidity", hum);
+      Firebase.RTDB.setString(&fbdo, "/weather/condition", cond);
+
+      Serial.print("🌡️ Temp: ");
+      Serial.print(temp);
+      Serial.print("°C  Humidity: ");
+      Serial.print(hum);
+      Serial.print("%  Condition: ");
+      Serial.println(cond);
+
+      if (temp > 35 && !highTempWarningPlayed) {
+        playAudio(AUDIO_HIGH_TEMP);
+        highTempWarningPlayed = true;
+        lastTempWarning = millis();
+      } else if (temp <= 35 && highTempWarningPlayed && (millis() - lastTempWarning > 60000)) {
+        highTempWarningPlayed = false;
+      }
+
+      BT.print("TEMP:");
+      BT.print(temp);
+      BT.print(" HUM:");
+      BT.print(hum);
+      BT.print(" COND:");
+      BT.println(cond);
+
+      lastTemp = temp;
+      lastHum  = hum;
+    } else {
+      Serial.println("✗ DHT11 read failed");
+      BT.println("DHT FAIL");
+    }
+
+    gasValue = analogRead(MQ3_PIN);
+    bool alcoholDetected = (gasValue > alcoholThreshold);
+
+    Firebase.RTDB.setInt(&fbdo, "/alcohol/gasValue", gasValue);
+    Firebase.RTDB.setBool(&fbdo, "/alcohol/detected", alcoholDetected);
+
+    Serial.print("🍺 Gas Value: ");
+    Serial.print(gasValue);
+
+    if (alcoholDetected) {
+      Serial.println(" - ⚠ ALCOHOL DETECTED!");
+      if (!alcoholWarningPlayed) {
+        playAudio(AUDIO_ALCOHOL);
+        lcdShowAlcoholWarning();
+        currentLcdMode = LCD_ALCOHOL_WARNING;
+        lcdUpdateTime = millis();
+        alcoholWarningPlayed = true;
+      }
+    } else {
+      Serial.println(" - ✓ OK");
+      if (alcoholWarningPlayed && !lastAlcoholDetected) {
+        playAudio(AUDIO_ALCOHOL_CLEAR);
+        alcoholWarningPlayed = false;
+        currentLcdMode = LCD_NORMAL;
+      }
+    }
+
+    BT.print("GAS:");
+    BT.print(gasValue);
+    if (alcoholDetected) {
+      BT.println(" ALCOHOL");
+      BT.println("ALCOHOL");
+    } else {
+      BT.println(" OK");
+    }
+
+    lastAlcoholDetected = alcoholDetected;
+
+    if (!accidentConfirmed) {
+      if ((currentLcdMode == LCD_ALCOHOL_WARNING || currentLcdMode == LCD_DANGER_WARNING) 
+          && (millis() - lcdUpdateTime >= lcdAlertDuration)) {
+        currentLcdMode = LCD_NORMAL;
+      }
+
+      if (currentLcdMode == LCD_NORMAL) {
+        lcdShowSummary(lastDistance, lastProxStatus, lastTemp, gasValue, lastAlcoholDetected, lastHum);
+      }
+    }
+  }
+
+  delay(80);
+}
