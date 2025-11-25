@@ -1,0 +1,105 @@
+#ifndef RIDER_GUARDIAN_X_H
+#define RIDER_GUARDIAN_X_H
+
+
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <MPU6050.h>
+#include <DHT.h>
+#include <SoftwareSerial.h>
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"
+#include <LiquidCrystal_I2C.h>
+#include <DFRobotDFPlayerMini.h>
+#include <TinyGPSPlus.h>
+
+
+#define WIFI_SSID     "Dialog 4G 049"
+#define WIFI_PASSWORD "8fb279CF"
+
+
+#define API_KEY      "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s"
+#define DATABASE_URL "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+extern FirebaseData fbdo;
+extern FirebaseAuth auth;
+extern FirebaseConfig config;
+
+extern LiquidCrystal_I2C lcd;   // LCD I2C 16x2
+
+
+extern DFRobotDFPlayerMini myDFPlayer;
+
+// AUDIO TRACK NUMBERS
+#define AUDIO_WELCOME          1
+#define AUDIO_HELMET_ON        2
+#define AUDIO_HELMET_OFF       3
+#define AUDIO_ALCOHOL          7
+#define AUDIO_ALCOHOL_CLEAR    5
+#define AUDIO_ACCIDENT         6
+#define AUDIO_DANGER           4
+#define AUDIO_VERY_CLOSE       8
+#define AUDIO_HIGH_TEMP        9
+#define AUDIO_SYSTEM_READY    10
+
+
+extern SoftwareSerial gsmSerial;
+#define EMERGENCY_NUMBER "0769930678"
+
+
+extern SoftwareSerial gpsSerial;
+extern TinyGPSPlus gps;
+
+// GPS Data
+extern float currentLatitude;
+extern float currentLongitude;
+extern bool gpsLocationValid;
+
+
+extern MPU6050 mpu;
+
+
+#define DHT_PIN  D4
+#define DHT_TYPE DHT11
+extern DHT dht;
+
+
+#define MQ3_PIN A0
+extern int alcoholThreshold;
+
+
+#define TRIG_PIN D6
+#define ECHO_PIN D7
+
+
+#define HELMET_SWITCH_PIN D5
+
+
+extern SoftwareSerial BT;
+
+
+
+
+void checkAccidentAndTriggerGSM();
+
+
+void checkAlcoholLevel();
+
+
+void updateGPSLocation();
+String getGoogleMapsLink();
+
+
+void lcdShowAccident();
+void lcdShowAlcoholWarning();
+void lcdShowHelmet(bool state);
+void lcdShowDangerWarning(float d);
+
+
+void playAudio(int track);
+void playAudioPriority(int track);
+
+String getProximityStatus(float d);
+
+#endif
