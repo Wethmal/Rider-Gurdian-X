@@ -1,0 +1,609 @@
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <MPU6050.h>
+#include <DHT.h>
+#include <SoftwareSerial.h>
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"
+#include <LiquidCrystal_I2C.h>
+#include <DFRobotDFPlayerMini.h>
+
+// ======================= WIFI ===========================
+#define WIFI_SSID     "Dialog 4G 049"
+#define WIFI_PASSWORD "8fb279CF"
+
+// ======================= FIREBASE =======================
+#define API_KEY      "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s"
+#define DATABASE_URL "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+// ======================= LCD (I2C) ======================
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ======================= DFPLAYER MINI ==================
+// Using Hardware Serial (RX0=GPIO3, TX0=GPIO1)
+// IMPORTANT: Disconnect DFPlayer during code upload!
+DFRobotDFPlayerMini myDFPlayer;
+
+// ============ AUDIO TRACK DEFINITIONS ===================
+// Track numbers match your MP3 files (0001.mp3 to 0010.mp3)
+#define AUDIO_WELCOME          1  // "Welcome to Smart Helmet System"
+#define AUDIO_HELMET_ON        2  // "Helmet detected"
+#define AUDIO_HELMET_OFF       3  // "Helmet removed"
+#define AUDIO_ALCOHOL          7  // "Alcohol detected! Do not ride"
+#define AUDIO_ALCOHOL_CLEAR    5  // "Alcohol level normal"
+#define AUDIO_ACCIDENT         6  // "Accident detected! Emergency alert sent"
+#define AUDIO_DANGER           4  // "Danger! Object too close"
+#define AUDIO_VERY_CLOSE       8  // "Warning! Very close proximity"
+#define AUDIO_HIGH_TEMP        9  // "High temperature detected"
+#define AUDIO_SYSTEM_READY    10  // "System ready"
+
+// ======================= PIN CONFIG ======================
+#define HELMET_SWITCH_PIN D5   // GPIO14
+#define TRIG_PIN D6            // GPIO12
+#define ECHO_PIN D7            // GPIO13
+#define DHT_PIN  D4            // GPIO2
+#define DHT_TYPE DHT11
+DHT dht(DHT_PIN, DHT_TYPE);
+
+#define MQ3_PIN A0
+int gasValue;
+int alcoholThreshold = 800;
+
+MPU6050 mpu;
+
+// Bluetooth HC-05 (Optional - if you still want to use it)
+SoftwareSerial BT(D3, D8);
+
+// ======================= VARIABLES =======================
+unsigned long lastSensorTime = 0;
+const unsigned long sensorInterval = 2000;
+
+unsigned long lcdUpdateTime = 0;
+const unsigned long lcdAlertDuration = 3000;
+enum LcdMode { LCD_NORMAL, LCD_ALCOHOL_WARNING, LCD_DANGER_WARNING };
+LcdMode currentLcdMode = LCD_NORMAL;
+
+// Audio queue system
+unsigned long lastAudioPlayTime = 0;
+const unsigned long audioMinInterval = 2000; // Minimum 2 seconds between sounds
+int pendingAudioTrack = 0;
+bool audioPlaying = false;
+
+bool helmetDetected = false;
+bool lastHelmetState = false;
+
+float gForce = 16384.0;
+float roll, pitch, tilt;
+const float accidentTiltThreshold = 70.0;
+const float impactThreshold = 3.0;
+bool lastAccidentState = false;
+
+unsigned long accidentDebounceTime = 0;
+const unsigned long accidentDebounceDelay = 3000;
+bool accidentConfirmed = false;
+
+float lastDistance = 0;
+String lastProxStatus = "SAFE";
+float lastTemp = 0;
+float lastHum = 0;
+bool lastAlcoholDetected = false;
+bool alcoholWarningPlayed = false;
+
+unsigned long lastDangerWarning = 0;
+const unsigned long dangerWarningInterval = 5000;
+
+unsigned long lastTempWarning = 0;
+bool highTempWarningPlayed = false;
+
+// ======================= AUDIO HELPER ====================
+void playAudio(int trackNumber) {
+  // Check if enough time has passed since last audio
+  if (millis() - lastAudioPlayTime < audioMinInterval) {
+    Serial.print("⏳ Audio busy, queuing track: ");
+    Serial.println(trackNumber);
+    pendingAudioTrack = trackNumber; // Queue it
+    return;
+  }
+  
+  if (myDFPlayer.available()) {
+    myDFPlayer.play(trackNumber);
+    lastAudioPlayTime = millis();
+    audioPlaying = true;
+    Serial.print("♪ Playing track: ");
+    Serial.print(trackNumber);
+    Serial.println(" ♪");
+    delay(100); // Small delay to let DFPlayer process
+  } else {
+    Serial.println("✗ DFPlayer not available");
+  }
+}
+
+// Play priority audio (for critical alerts like accident)
+void playAudioPriority(int trackNumber) {
+  myDFPlayer.play(trackNumber);
+  lastAudioPlayTime = millis();
+  audioPlaying = true;
+  Serial.print("🚨 PRIORITY Playing: ");
+  Serial.println(trackNumber);
+  delay(100);
+}
+
+// Check if queued audio can play now
+void processAudioQueue() {
+  if (pendingAudioTrack > 0 && (millis() - lastAudioPlayTime >= audioMinInterval)) {
+    int track = pendingAudioTrack;
+    pendingAudioTrack = 0;
+    playAudio(track);
+  }
+}
+
+// ======================= DISTANCE MEASUREMENT ============
+float measureDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(5);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  float distance = duration * 0.0343 / 2.0;
+
+  if (distance <= 0 || distance > 400) return 400;
+  return distance;
+}
+
+String getProximityStatus(float d) {
+  if (d < 20)  return "DANGER";
+  if (d < 50)  return "VERY CLOSE";
+  if (d < 100) return "CLOSE";
+  if (d < 200) return "MODERATE";
+  return "SAFE";
+}
+
+String getWeatherCondition(float temp, float hum) {
+  if (temp > 35) return "HOT";
+  if (temp > 25 && hum > 70) return "HUMID";
+  if (temp < 15) return "COLD";
+  if (hum > 80)  return "RAINY/WET";
+  if (temp >= 20 && temp <= 30 && hum < 70) return "COMFORT";
+  return "NORMAL";
+}
+
+// ======================= LCD FUNCTIONS ===================
+void lcdShowBoot(const char* line2) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  SMART HELMET  ");
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
+}
+
+void lcdShowHelmet(bool helmet) {
+  lcd.clear();
+  if (helmet) {
+    lcd.setCursor(0, 0);
+    lcd.print("   HELMET ON    ");
+    lcd.setCursor(0, 1);
+    lcd.print("  Ready to Ride ");
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print("  HELMET OFF!   ");
+    lcd.setCursor(0, 1);
+    lcd.print(" Wear to Start  ");
+  }
+}
+
+void lcdShowAccident() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("!! ACCIDENT !! ");
+  lcd.setCursor(0, 1);
+  lcd.print("Emergency Alert!");
+}
+
+void lcdShowAlcoholWarning() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("ALCOHOL DETECTED");
+  lcd.setCursor(0, 1);
+  lcd.print("  DO NOT RIDE!  ");
+}
+
+void lcdShowDangerWarning(float dist) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  !! DANGER !!  ");
+  lcd.setCursor(0, 1);
+  lcd.print("   Object ");
+  lcd.print((int)dist);
+  lcd.print("cm  ");
+}
+
+void lcdShowSummary(float dist, String status, float temp, int gas, bool alcohol, float hum) {
+  lcd.clear();
+  
+  // Line 1: Distance warning or status
+  lcd.setCursor(0, 0);
+  if (alcohol) {
+    lcd.print("ALCOHOL! G:");
+    lcd.print(gas);
+  } else if (status == "DANGER") {
+    lcd.print("DANGER! ");
+    lcd.print((int)dist);
+    lcd.print("cm");
+  } else if (status == "VERY CLOSE") {
+    lcd.print("TOO CLOSE ");
+    lcd.print((int)dist);
+    lcd.print("cm");
+  } else {
+    lcd.print("Dist:");
+    lcd.print((int)dist);
+    lcd.print("cm ");
+    if (status == "CLOSE") lcd.print("OK");
+    else if (status == "MODERATE") lcd.print("OK");
+    else lcd.print("SAFE");
+  }
+
+  // Line 2: Temperature, Humidity & Weather
+  lcd.setCursor(0, 1);
+  lcd.print((int)temp);
+  lcd.print((char)223); // Degree symbol
+  lcd.print("C ");
+  lcd.print((int)hum);
+  lcd.print("% ");
+  
+  if (temp > 35) {
+    lcd.print("HOT!");
+  } else if (hum > 80) {
+    lcd.print("WET");
+  } else if (temp < 15) {
+    lcd.print("COLD");
+  } else {
+    lcd.print("OK");
+  }
+}
+
+// ======================= SETUP ==========================
+void setup() {
+  Serial.begin(9600);
+  BT.begin(9600);
+
+  // LCD init
+  lcd.init();
+  lcd.backlight();
+  lcdShowBoot("   Booting...   ");
+  delay(1500);
+
+  // DFPlayer initialization
+  lcdShowBoot("  Init Audio... ");
+  Serial.println("Initializing DFPlayer Mini...");
+  Serial.println("Please wait...");
+  
+  delay(1000); // Important: Give DFPlayer time to initialize SD card
+  
+  if (!myDFPlayer.begin(Serial)) {
+    Serial.println("✗ DFPlayer connection failed!");
+    Serial.println("Check: 1) Wiring 2) SD card inserted 3) MP3 files present");
+    lcdShowBoot(" Audio Failed! ");
+    delay(3000);
+  } else {
+    Serial.println("✓ DFPlayer Online");
+    
+    // Configure DFPlayer settings
+    myDFPlayer.volume(25); // Volume 0-30 (adjust as needed)
+    delay(50);
+    myDFPlayer.EQ(DFPLAYER_EQ_NORMAL); // Set equalizer
+    delay(50);
+    myDFPlayer.outputDevice(DFPLAYER_DEVICE_SD); // Use SD card
+    delay(50);
+    
+    int fileCount = myDFPlayer.readFileCounts();
+    Serial.print("Files on SD: ");
+    Serial.println(fileCount);
+    
+    if (fileCount < 10) {
+      Serial.println("⚠ Warning: Less than 10 MP3 files found!");
+      lcdShowBoot("Check MP3 Files");
+      delay(2000);
+    }
+    
+    delay(1000); // Final initialization delay
+    
+    // Play welcome message
+    playAudioPriority(AUDIO_WELCOME);
+    lcdShowBoot(" Welcome Rider! ");
+    delay(4000); // Wait for welcome to finish (adjust based on your audio length)
+  }
+
+  // Pin setup
+  pinMode(HELMET_SWITCH_PIN, INPUT_PULLUP);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  dht.begin();
+
+  // MPU6050 init
+  Wire.begin(D2, D1);
+  mpu.initialize();
+  if (mpu.testConnection()) {
+    Serial.println("✓ MPU6050 Connected");
+  } else {
+    Serial.println("✗ MPU6050 Failed!");
+  }
+
+  // WiFi connection
+  lcdShowBoot("WiFi Connect...");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
+  
+  int wifiAttempts = 0;
+  while (WiFi.status() != WL_CONNECTED && wifiAttempts < 20) {
+    delay(500);
+    Serial.print(".");
+    wifiAttempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✓ WiFi Connected");
+    lcdShowBoot(" WiFi Connected ");
+  } else {
+    Serial.println("\n✗ WiFi Failed");
+    lcdShowBoot("  WiFi Failed!  ");
+  }
+  delay(1000);
+
+  // Firebase config
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+  auth.user.email = "admin@gmail.com";
+  auth.user.password = "admin123";
+
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+  
+  Serial.println("✓ Firebase Ready");
+  lcdShowBoot("Firebase Ready");
+  delay(1000);
+
+  Firebase.RTDB.setBool(&fbdo, "/helmetDetected", false);
+  Firebase.RTDB.setBool(&fbdo, "/accident", false);
+
+  // System ready
+  lcdShowBoot(" System Ready! ");
+  delay(500);
+  playAudioPriority(AUDIO_SYSTEM_READY);
+  delay(3000);
+  
+  lcdShowHelmet(false);
+}
+
+// ======================= MAIN LOOP =======================
+void loop() {
+
+  // Process any queued audio first
+  processAudioQueue();
+
+  // ========== HELMET DETECTION ==========
+  bool rawState = digitalRead(HELMET_SWITCH_PIN);
+  bool currentHelmet = !rawState;
+
+  if (currentHelmet != lastHelmetState) {
+    lastHelmetState = currentHelmet;
+    helmetDetected  = currentHelmet;
+
+    if (helmetDetected) {
+      Serial.println("✓ Helmet ON");
+      BT.println("HELMET ON");
+      playAudio(AUDIO_HELMET_ON);
+    } else {
+      Serial.println("✗ Helmet OFF");
+      BT.println("HELMET OFF");
+      playAudio(AUDIO_HELMET_OFF);
+    }
+
+    Firebase.RTDB.setBool(&fbdo, "/helmetDetected", helmetDetected);
+    
+    if (!lastAccidentState) {
+      lcdShowHelmet(helmetDetected);
+      currentLcdMode = LCD_NORMAL;
+    }
+  }
+
+  // ========== ACCIDENT DETECTION (MPU6050) ==========
+  int16_t ax, ay, az;
+  mpu.getAcceleration(&ax, &ay, &az);
+
+  float xG = ax / gForce;
+  float yG = ay / gForce;
+  float zG = az / gForce;
+
+  float totalG = sqrt(xG * xG + yG * yG + zG * zG);
+  
+  roll = atan2(yG, zG) * 180.0 / PI;
+  pitch = atan2(-xG, sqrt(yG * yG + zG * zG)) * 180.0 / PI;
+  tilt = max(abs(roll), abs(pitch));
+
+  bool impactDetected = (totalG > impactThreshold);
+  bool extremeTilt = (tilt >= accidentTiltThreshold);
+  bool accidentTrigger = (impactDetected || extremeTilt);
+
+  // Debouncing logic
+  if (accidentTrigger && !accidentConfirmed) {
+    if (accidentDebounceTime == 0) {
+      accidentDebounceTime = millis();
+      Serial.println("⚠ Possible accident - verifying...");
+    } else if (millis() - accidentDebounceTime >= accidentDebounceDelay) {
+      accidentConfirmed = true;
+      Serial.println("⚠⚠⚠ ACCIDENT CONFIRMED!");
+    }
+  } else if (!accidentTrigger) {
+    accidentDebounceTime = 0;
+    if (accidentConfirmed) {
+      accidentConfirmed = false;
+      Serial.println("✓ Accident cleared");
+    }
+  }
+
+  Firebase.RTDB.setFloat(&fbdo, "/mpu/tilt", tilt);
+  Firebase.RTDB.setFloat(&fbdo, "/mpu/impact", totalG);
+  Firebase.RTDB.setBool(&fbdo, "/accident", accidentConfirmed);
+
+  if (accidentConfirmed && !lastAccidentState) {
+    Serial.println("🚨 ACCIDENT DETECTED!");
+    BT.println("A");
+    playAudioPriority(AUDIO_ACCIDENT); // Priority - play immediately
+    Firebase.RTDB.setBool(&fbdo, "/helmetDetected", false);
+    lcdShowAccident();
+  } else if (!accidentConfirmed && lastAccidentState) {
+    BT.println("N");
+    lcdShowHelmet(helmetDetected);
+  }
+
+  lastAccidentState = accidentConfirmed;
+
+  if (!accidentConfirmed) {
+    BT.println("N");
+  }
+
+  // ========== PERIODIC SENSOR READINGS (Every 2 seconds) ==========
+  if (millis() - lastSensorTime >= sensorInterval) {
+    lastSensorTime = millis();
+
+    // --- ULTRASONIC SENSOR ---
+    float dist = measureDistance();
+    String prox = getProximityStatus(dist);
+
+    Firebase.RTDB.setFloat(&fbdo, "/ultrasonic/distance", dist);
+    Firebase.RTDB.setString(&fbdo, "/ultrasonic/status", prox);
+
+    Serial.print("📏 Distance: ");
+    Serial.print(dist);
+    Serial.print(" cm - Status: ");
+    Serial.println(prox);
+
+    // Proximity audio warnings
+    if (prox == "DANGER" && (millis() - lastDangerWarning > dangerWarningInterval)) {
+      playAudioPriority(AUDIO_DANGER); // Priority for danger
+      lcdShowDangerWarning(dist);
+      currentLcdMode = LCD_DANGER_WARNING;
+      lcdUpdateTime = millis();
+      lastDangerWarning = millis();
+    } else if (prox == "VERY CLOSE" && lastProxStatus != "VERY CLOSE" && lastProxStatus != "DANGER") {
+      playAudio(AUDIO_VERY_CLOSE);
+      lcdShowDangerWarning(dist);
+      currentLcdMode = LCD_DANGER_WARNING;
+      lcdUpdateTime = millis();
+    }
+
+    BT.print("DIST:");
+    BT.print(dist);
+    BT.print(" ");
+    BT.println(prox);
+
+    lastDistance = dist;
+    lastProxStatus = prox;
+
+    // --- DHT11 SENSOR ---
+    float temp = dht.readTemperature();
+    float hum  = dht.readHumidity();
+
+    if (!isnan(temp) && !isnan(hum)) {
+      String cond = getWeatherCondition(temp, hum);
+
+      Firebase.RTDB.setFloat(&fbdo, "/weather/temperature", temp);
+      Firebase.RTDB.setFloat(&fbdo, "/weather/humidity", hum);
+      Firebase.RTDB.setString(&fbdo, "/weather/condition", cond);
+
+      Serial.print("🌡️ Temp: ");
+      Serial.print(temp);
+      Serial.print("°C  Humidity: ");
+      Serial.print(hum);
+      Serial.print("%  Condition: ");
+      Serial.println(cond);
+
+      // High temperature warning
+      if (temp > 35 && !highTempWarningPlayed) {
+        playAudio(AUDIO_HIGH_TEMP);
+        highTempWarningPlayed = true;
+        lastTempWarning = millis();
+      } else if (temp <= 35 && highTempWarningPlayed && (millis() - lastTempWarning > 60000)) {
+        highTempWarningPlayed = false;
+      }
+
+      BT.print("TEMP:");
+      BT.print(temp);
+      BT.print(" HUM:");
+      BT.print(hum);
+      BT.print(" COND:");
+      BT.println(cond);
+
+      lastTemp = temp;
+      lastHum  = hum;
+    } else {
+      Serial.println("✗ DHT11 read failed");
+      BT.println("DHT FAIL");
+    }
+
+    // --- MQ-3 ALCOHOL SENSOR ---
+    gasValue = analogRead(MQ3_PIN);
+    bool alcoholDetected = (gasValue > alcoholThreshold);
+
+    Firebase.RTDB.setInt(&fbdo, "/alcohol/gasValue", gasValue);
+    Firebase.RTDB.setBool(&fbdo, "/alcohol/detected", alcoholDetected);
+
+    Serial.print("🍺 Gas Value: ");
+    Serial.print(gasValue);
+    
+    if (alcoholDetected) {
+      Serial.println(" - ⚠ ALCOHOL DETECTED!");
+      
+      if (!alcoholWarningPlayed) {
+        playAudio(AUDIO_ALCOHOL);
+        lcdShowAlcoholWarning();
+        currentLcdMode = LCD_ALCOHOL_WARNING;
+        lcdUpdateTime = millis();
+        alcoholWarningPlayed = true;
+      }
+    } else {
+      Serial.println(" - ✓ OK");
+      
+      if (alcoholWarningPlayed && !lastAlcoholDetected) {
+        playAudio(AUDIO_ALCOHOL_CLEAR);
+        alcoholWarningPlayed = false;
+        currentLcdMode = LCD_NORMAL;
+      }
+    }
+
+    BT.print("GAS:");
+    BT.print(gasValue);
+    if (alcoholDetected) {
+      BT.println(" ALCOHOL");
+      BT.println("ALCOHOL");
+    } else {
+      BT.println(" OK");
+    }
+
+    lastAlcoholDetected = alcoholDetected;
+
+    // ========== LCD UPDATE LOGIC ==========
+    if (!accidentConfirmed) {
+      // Return to normal display after alert duration
+      if ((currentLcdMode == LCD_ALCOHOL_WARNING || currentLcdMode == LCD_DANGER_WARNING) 
+          && (millis() - lcdUpdateTime >= lcdAlertDuration)) {
+        currentLcdMode = LCD_NORMAL;
+      }
+      
+      // Update display
+      if (currentLcdMode == LCD_NORMAL) {
+        lcdShowSummary(lastDistance, lastProxStatus, lastTemp, gasValue, lastAlcoholDetected, lastHum);
+      }
+    }
+  }
+
+  delay(80);
+}
