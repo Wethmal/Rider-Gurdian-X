@@ -1,0 +1,117 @@
+// ========== MEMBER 1: SYSTEM SETUP & INITIALIZATION ==========
+// --- Libraries ---
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <MPU6050.h>
+#include <DHT.h>
+#include <SoftwareSerial.h>
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"
+#include <LiquidCrystal_I2C.h>
+#include <DFRobotDFPlayerMini.h>
+#include <TinyGPS++.h>
+
+// --- WiFi ---
+#define WIFI_SSID     "Dialog 4G 049"
+#define WIFI_PASSWORD "8fb279CF"
+
+// --- Firebase ---
+#define API_KEY      "AIzaSyDoRLg1zbw56lWy93yCGBYqpOScxbtDV0s"
+#define DATABASE_URL "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+// --- LCD ---
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// --- DFPlayer ---
+DFRobotDFPlayerMini myDFPlayer;
+
+// --- GSM ---
+SoftwareSerial gsmSerial(D9, D10);
+#define EMERGENCY_NUMBER "0769930678"
+
+// --- GPS ---
+SoftwareSerial gpsSerial(D11, D12);
+TinyGPSPlus gps;
+
+// --- Boot LCD ---
+void lcdShowBoot(const char* txt) {
+  lcd.clear();
+  lcd.setCursor(0,0); lcd.print(" SMART HELMET ");
+  lcd.setCursor(0,1); lcd.print(txt);
+}
+
+// --- GSM Init ---
+bool initGSM() {
+  gsmSerial.begin(9600);
+  delay(1000);
+
+  gsmSerial.println("AT");
+  delay(500);
+  if (!gsmSerial.find("OK")) return false;
+
+  gsmSerial.println("AT+CMGF=1");
+  delay(500);
+
+  gsmSerial.println("AT+CLIP=1");
+  delay(500);
+
+  return true;
+}
+
+// ========== SETUP ==========
+void setup() {
+  Serial.begin(9600);
+
+  lcd.init();
+  lcd.backlight();
+  lcdShowBoot(" Booting... ");
+  delay(1500);
+
+  // GPS
+  lcdShowBoot(" Init GPS... ");
+  gpsSerial.begin(9600);
+  delay(1000);
+
+  // GSM
+  lcdShowBoot(" Init GSM... ");
+  if (initGSM()) lcdShowBoot(" GSM Ready ");
+  else lcdShowBoot(" GSM Failed ");
+  delay(1500);
+
+  // DFPlayer
+  lcdShowBoot(" Audio Init ");
+  if (!myDFPlayer.begin(Serial)) {
+    lcdShowBoot("DF Error");
+    delay(2000);
+  }
+  myDFPlayer.volume(25);
+
+  // WiFi
+  lcdShowBoot("WiFi...");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    attempts++;
+  }
+
+  // Firebase
+  lcdShowBoot("Firebase...");
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+  auth.user.email = "admin@gmail.com";
+  auth.user.password = "admin123";
+  Firebase.begin(&config, &auth);
+
+  lcdShowBoot("System Ready!");
+  delay(2000);
+}
+
+void loop() {
+  // Member 1 has no active loop work
+}
