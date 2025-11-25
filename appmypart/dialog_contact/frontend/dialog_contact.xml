@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <EditText
+            android:id="@+id/etName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Name"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#757575"
+            android:inputType="textPersonName" />
+
+        <EditText
+            android:id="@+id/etPhone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:hint="Phone number"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#757575"
+            android:inputType="phone" />
+
+        <EditText
+            android:id="@+id/etRelation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:hint="Relation (e.g. Wife, Father)"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#757575"
+            android:inputType="text" />
+
+        <EditText
+            android:id="@+id/etPriority"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:hint="Priority (High / Medium / Low)"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#757575"
+            android:inputType="textCapWords" />
+
+    </LinearLayout>
+</ScrollView>
