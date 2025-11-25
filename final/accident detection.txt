@@ -1,0 +1,124 @@
+
+
+extern FirebaseData fbdo;
+extern DFRobotDFPlayerMini myDFPlayer;
+extern LiquidCrystal_I2C lcd;
+extern TinyGPSPlus gps;
+extern SoftwareSerial gsmSerial;
+
+
+#define HELMET_SWITCH_PIN D5
+MPU6050 mpu;
+
+// Emergency flags
+bool emergencyCallMade = false;
+bool emergencySmsSent = false;
+
+// GPS variables
+float currentLatitude = 0;
+float currentLongitude = 0;
+bool gpsLocationValid = false;
+
+unsigned long lastGPSUpdate = 0;
+const unsigned long gpsUpdateInterval = 5000;
+
+//  GPS Update 
+void updateGPSLocation() {
+  while (gpsSerial.available()) {
+    if (gps.encode(gpsSerial.read())) {
+      if (gps.location.isValid()) {
+        gpsLocationValid = true;
+        currentLatitude = gps.location.lat();
+        currentLongitude = gps.location.lng();
+
+        Firebase.RTDB.setFloat(&fbdo, "/gps/latitude", currentLatitude);
+        Firebase.RTDB.setFloat(&fbdo, "/gps/longitude", currentLongitude);
+      }
+    }
+  }
+}
+
+String getMaps() {
+  if (!gpsLocationValid) return "Location unavailable";
+  return "https://maps.google.com/?q=" + String(currentLatitude, 6) + "," + String(currentLongitude, 6);
+}
+
+// Emergency Call
+void makeEmergencyCall() {
+  if (emergencyCallMade) return;
+
+  gsmSerial.print("ATD");
+  gsmSerial.print(EMERGENCY_NUMBER);
+  gsmSerial.println(";");
+
+  delay(20000);
+  gsmSerial.println("ATH");
+
+  emergencyCallMade = true;
+}
+
+//  Emergency SMS 
+void sendEmergencySMS() {
+  if (emergencySmsSent) return;
+
+  gsmSerial.println("AT+CMGF=1");
+  delay(500);
+  gsmSerial.print("AT+CMGS=\""); gsmSerial.print(EMERGENCY_NUMBER); gsmSerial.println("\"");
+  delay(500);
+
+  gsmSerial.print("ACCIDENT ALERT!\nLocation:\n");
+  gsmSerial.println(getMaps());
+  delay(500);
+
+  gsmSerial.write(26);
+  delay(5000);
+
+  emergencySmsSent = true;
+}
+
+//  LCD Accident 
+void lcdShowAccident() {
+  lcd.clear();
+  lcd.setCursor(0,0); lcd.print("!! ACCIDENT !!");
+  lcd.setCursor(0,1); lcd.print("Emergency Call!");
+}
+
+//  Helmet + Accident logic 
+void loop() {
+
+  // GPS update
+  if (millis() - lastGPSUpdate >= gpsUpdateInterval) {
+    lastGPSUpdate = millis();
+    updateGPSLocation();
+  }
+
+  // Helmet
+  bool helmet = !digitalRead(HELMET_SWITCH_PIN);
+  Firebase.RTDB.setBool(&fbdo, "/helmetDetected", helmet);
+
+  // MPU Reading
+  int16_t ax, ay, az;
+  mpu.getAcceleration(&ax, &ay, &az);
+
+  float gForce = 16384.0;
+  float xG = ax / gForce;
+  float yG = ay / gForce;
+  float zG = az / gForce;
+
+  float totalG = sqrt(xG * xG + yG * yG + zG * zG);
+  float roll = atan2(yG, zG) * 180 / PI;
+  float pitch = atan2(-xG, sqrt(yG*yG + zG*zG)) * 180 / PI;
+
+  bool impact = (totalG > 3.0);
+  bool tilt = (abs(roll) > 70 || abs(pitch) > 70);
+
+  bool accident = (impact || tilt);
+
+  Firebase.RTDB.setBool(&fbdo, "/accident", accident);
+
+  if (accident) {
+    lcdShowAccident();
+    makeEmergencyCall();
+    sendEmergencySMS();
+  }
+}
