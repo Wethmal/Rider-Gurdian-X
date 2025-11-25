@@ -1,0 +1,22 @@
+// ===== MEMBER 2: ALCOHOL SENSOR (MQ-3) =====
+
+void checkAlcoholLevel() {
+    int gasValue = analogRead(MQ3_PIN);
+    bool alcoholDetected = (gasValue > alcoholThreshold);
+
+    Firebase.RTDB.setInt(&fbdo, "/alcohol/gasValue", gasValue);
+    Firebase.RTDB.setBool(&fbdo, "/alcohol/detected", alcoholDetected);
+
+    Serial.print("Gas Value: ");
+    Serial.println(gasValue);
+
+    if (alcoholDetected) {
+        Serial.println("⚠ ALCOHOL DETECTED");
+        playAudio(AUDIO_ALCOHOL);
+        lcdShowAlcoholWarning();
+    } 
+    else {
+        Serial.println("Alcohol Normal");
+        playAudio(AUDIO_ALCOHOL_CLEAR);
+    }
+}
