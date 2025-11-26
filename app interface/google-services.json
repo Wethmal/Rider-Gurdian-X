@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "78517676250",
+    "firebase_url": "https://iottest-6f78a-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "iottest-6f78a",
+    "storage_bucket": "iottest-6f78a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:78517676250:android:1d9654582642871e9f5de3",
+        "android_client_info": {
+          "package_name": "com.example.myapplication"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBKZ64yOaMk3ySsxUOlvqE3sGfasuB4Cs8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:78517676250:android:d3272e1f2262a9d59f5de3",
+        "android_client_info": {
+          "package_name": "com.example.ridergurdianx"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBKZ64yOaMk3ySsxUOlvqE3sGfasuB4Cs8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

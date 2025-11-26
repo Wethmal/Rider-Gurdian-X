@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">RiderGurdianX</string>
+    <string name="back">Back</string>
+    <string name="live_cam_title">RiderGurdianX Live Cam</string>
+    <string name="connecting">Connecting...</string>
+    <string name="my_location">My location</string>
+    <string name="enter_destination">Enter destination</string>
+    <string name="get_directions">Get directions</string>
+    <string name="no_route_set">No route set</string>
+    <string name="start">Start</string>
+
+    <!-- Top bar texts (to remove hardcoded warnings) -->
+
+    <string name="current_location">Current Location</string>
+    <string name="set_destination_get_directions">
+        Set a destination &amp; get directions
+    </string>
+</resources>
