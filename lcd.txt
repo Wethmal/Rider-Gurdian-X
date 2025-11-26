@@ -1,0 +1,50 @@
+// ========== MEMBER 4: AUDIO QUEUE + LCD UI ==========
+
+extern LiquidCrystal_I2C lcd;
+extern DFRobotDFPlayerMini myDFPlayer;
+
+unsigned long lastAudioTime = 0;
+int pendingTrack = 0;
+
+void playAudio(int track) {
+  if (millis() - lastAudioTime < 2000) {
+    pendingTrack = track;
+    return;
+  }
+  myDFPlayer.play(track);
+  lastAudioTime = millis();
+}
+
+void playAudioPriority(int track) {
+  myDFPlayer.play(track);
+  lastAudioTime = millis();
+  pendingTrack = 0;
+}
+
+void processAudioQueue() {
+  if (pendingTrack > 0 && millis() - lastAudioTime >= 2000) {
+    int t = pendingTrack;
+    pendingTrack = 0;
+    playAudio(t);
+  }
+}
+
+// ---------- SUMMARY SCREEN ----------
+void lcdSummary(float dist, float temp, float hum, int gas) {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("D:");
+  lcd.print((int)dist);
+  lcd.print("cm T:");
+  lcd.print((int)temp);
+
+  lcd.setCursor(0,1);
+  lcd.print("H:");
+  lcd.print((int)hum);
+  lcd.print("% GAS:");
+  lcd.print(gas);
+}
+
+void loop() {
+  // This member ONLY manages display & audio.
+}

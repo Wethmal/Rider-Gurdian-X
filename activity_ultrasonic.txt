@@ -1,0 +1,19 @@
+
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#101014" tools:context=".UltrasonicActivity">
+<TextView android:id="@+id/tvUltrasonicTitlePage" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ultrasonic Distance" android:textSize="22sp" android:textStyle="bold" android:textColor="#FFFFFF" android:layout_marginTop="24dp" app:layout_constraintTop_toTopOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"/>
+
+
+<TextView android:id="@+id/tvUltrasonicDistance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Distance: -- cm" android:textSize="18sp" android:textColor="#FFAB91" android:layout_marginTop="24dp" app:layout_constraintTop_toBottomOf="@id/tvUltrasonicTitlePage" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"/>
+
+
+<TextView android:id="@+id/tvUltrasonicStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Status: --" android:textSize="16sp" android:textColor="#FFFFFF" android:layout_marginTop="16dp" app:layout_constraintTop_toBottomOf="@id/tvUltrasonicDistance" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"/>
+
+
+<TextView android:id="@+id/tvUltrasonicAdvice" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Waiting for sensor data…" android:textSize="14sp" android:textColor="#B0BEC5" android:layout_marginTop="8dp" app:layout_constraintTop_toBottomOf="@id/tvUltrasonicStatus" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"/>
+
+
+<TextView android:id="@+id/tvSafeDistance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Safe Distance: 80 cm" android:textSize="14sp" android:textColor="#80CBC4" android:layout_marginTop="32dp" app:layout_constraintTop_toBottomOf="@id/tvUltrasonicAdvice" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"/>
+
+
+<Button android:id="@+id/btnChangeSafeDistance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Change Safe Distance" android:layout_marginTop="12dp" app:layout_constraintTop_toBottomOf="@id/tvSafeDistance" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent"/>
+</androidx.constraintlayout.widget.ConstraintLayout>
