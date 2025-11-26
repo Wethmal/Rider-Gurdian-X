@@ -1,0 +1,61 @@
+#include <SoftwareSerial.h>
+#include <DHT.h>
+
+// -------------------------------
+// DHT11 CONFIG
+// -------------------------------
+#define DHTPIN D4
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+// -------------------------------
+// BLUETOOTH CONFIG
+// D3 = RX, D8 = TX
+// -------------------------------
+SoftwareSerial BT(D3, D8);
+
+// -------------------------------
+// SETUP
+// -------------------------------
+void setup() {
+  Serial.begin(115200);
+  BT.begin(9600);
+
+  dht.begin();
+
+  Serial.println("DHT11 + Bluetooth Ready");
+  BT.println("DHT11 + Bluetooth Ready");
+}
+
+// -------------------------------
+// LOOP
+// -------------------------------
+void loop() {
+
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+
+  // Check sensor status
+  if (isnan(temp) || isnan(hum)) {
+    Serial.println("Failed to read DHT11!");
+    BT.println("Failed to read DHT11!");
+    delay(1000);
+    return;
+  }
+
+  // Print to Serial
+  Serial.print("Temp: ");
+  Serial.print(temp);
+  Serial.print(" °C  |  Hum: ");
+  Serial.print(hum);
+  Serial.println(" %");
+
+  // Send to Bluetooth
+  BT.print("Temp: ");
+  BT.print(temp);
+  BT.print(" °C | Humidity: ");
+  BT.print(hum);
+  BT.println(" %");
+
+  delay(1000);
+}
